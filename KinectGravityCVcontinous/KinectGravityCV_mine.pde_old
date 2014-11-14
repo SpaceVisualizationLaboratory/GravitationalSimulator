@@ -1,0 +1,365 @@
+
+/**
+ * Gravity System 
+ * Graviy using open Kinect lib 
+ */
+import hypermedia.video.*;
+import org.openkinect.*;
+import org.openkinect.processing.*;
+import processing.video.*;
+
+float deg = 15; // Start at 15 degrees
+boolean diagState=false;
+boolean displayState=false;
+
+//Adjustible parameters
+int numBalls = 700;
+float softening = 2.0;
+float vScale=0.15;
+float G=0.5;
+int simulationTime = 1000;  //how long simulation runs
+int drawingTime = 1000;  //time to draw
+int tbuffer = 100;
+float chance = 50.; // percentage of time particles are drawn
+//Screensaver
+int nSS=0;
+int nSSMovies=4;
+float[] startTimes = new float[4];
+float[] endTimes = new float[4];
+//Movie exampleMovie;
+OpenCV opencv;
+int nB=0;
+int gameStatus=0; // 0=paint mode, 1=gravity mode, 2 screensaver mode
+float spring = 0.05;
+float gravity = 300.;
+float friction = .15; //only used in moi
+float cutoff =700;
+float xscale = 1024/640.;
+float yscale = 768/480.;
+int time=0;  //ticking
+int baseTime=0;  //
+
+// Kinect Obj
+Kinect kinect;
+// Size of kinect image
+int kw = 640;
+int kh = 480;
+int threshold = 700;
+
+Ball[] balls = new Ball[numBalls];
+int nColors=8;
+int nColor=0;
+color[] pColor =  new color[nColors];
+PVector v;
+Blob[] pBlobs;
+color white = color(255,255,255,128);
+//Fonts
+PFont fontA;
+PFont fontB;
+
+
+
+void setup() 
+{
+  size(1024, 768);
+  noCursor();
+  kinect = new Kinect(this);
+  kinect.start();
+  kinect.enableDepth(true);
+  // open video stream
+  opencv = new OpenCV( this );
+  opencv.allocate(640, 480 );
+  //exampleMovie = new Movie(this, "data/DSAsim2_colliding.mov");
+  
+
+  v=new PVector(0.,0.,0.);
+  //pBlobs=[];
+  PImage depth = kinect.getDepthImage();
+    //opencv.read();           // grab frame from camera
+  opencv.copy(depth);
+ 
+  pBlobs = opencv.blobs( 2000, 50000, 100, false, 1000 );
+
+  fontB = loadFont("Consolas-20.vlw");
+  textFont(fontB,20);
+  textAlign(CENTER);
+
+  smooth();
+  pColor[0]=color(255,255,55,155);
+  pColor[1]=color(50,150,255,155);
+  pColor[2]=color(255,128,0,155);
+  pColor[3]=color(0,255,150,155);
+  pColor[4]=color(0,255,0,155);
+  pColor[5]=color(255,0,0,155);
+  pColor[6]=color(0,0,255,155);
+  startTimes[0]=0.0;startTimes[1]=6.0;startTimes[2]=12.0;startTimes[3]=18.0; 
+  endTimes[0]=5.9;endTimes[1]=11.9;endTimes[2]=17.9;endTimes[3]=24.9;
+}
+
+void draw() 
+{
+  println(frameRate);
+  background(0 + 50*(1-gameStatus));
+  fill(255);
+  if (diagState) {
+    //textMode(SCREEN);
+    textAlign(LEFT);
+    if (gameStatus==0) text("Kinect FR: " + (int)kinect.getDepthFPS(),10,16);
+    text("Processing FR: " + (int)frameRate,10,36);
+    text("Number of Particles =: " + min(nB,numBalls),10,56);
+    textAlign(CENTER);
+  }
+  checkTime();
+  if (gameStatus==0) {
+    paintDisplay();
+  } else {
+    simDisplay();
+  }
+  float vxin=0.;
+  float vyin=0.;
+  float distx=0.;
+  float disty=0.;
+  //Open CV Stuff
+  //if (gameStatus==2) {
+    //image(exampleMovie,100,100);
+  //}
+  if (gameStatus == 0 ) {
+    PImage depth = kinect.getDepthImage();
+    opencv.copy(depth);
+    opencv.threshold(160);    // set black & white threshold 
+    if (displayState) {
+      image(opencv.image(),20,100,160,120);
+      image(depth,20,260,160,120);
+    }
+    float radius=0.;
+    // find blobs
+    Blob[] blobs = opencv.blobs( 2000, 50000, 100, false, 1000 );
+    // draw blob results
+    for( int i=0; i<blobs.length; i++ ) {
+      vxin=0.;
+      vyin=0.;
+      // Find Velocities
+      for( int k=0; k<pBlobs.length; k++ ) {
+        distx=blobs[i].centroid.x-pBlobs[k].centroid.x;
+        disty=blobs[i].centroid.y-pBlobs[k].centroid.y;
+        float dist = sqrt(distx*distx+disty*disty);
+        if (dist < 20.) {
+          vxin=-1.0*vScale*distx;
+          vyin=1.0*vScale*disty;
+        }
+      }
+        if (blobs[i].area > 50) {
+          fill(pColor[i]);
+          stroke(128);
+          beginShape();
+          for( int j=0; j<blobs[i].points.length; j++ ) {
+              vertex( width-xscale*blobs[i].points[j].x, yscale*blobs[i].points[j].y );
+          }
+          endShape(CLOSE);
+          radius=sqrt(blobs[i].area)/3.14159;
+          fill(255,255,255,100);
+          noStroke();          
+          ellipse(width - xscale*blobs[i].centroid.x,yscale*blobs[i].centroid.y,radius,radius);
+          if (random(100) < chance) {
+            float theta = random(TWO_PI);
+            float r=random(radius/2.);
+            float xoff = r*cos(theta);
+            float yoff = r*sin(theta);
+            balls[nB % numBalls] = new Ball(xoff+int(width - width*blobs[i].centroid.x/(1.0*kw)), yoff+int(height*blobs[i].centroid.y/(1.0*kh)), vxin,vyin, random(3,8), nB % numBalls,i,  balls);
+            nB++;
+          }
+        }
+    }
+    pBlobs=blobs;
+    opencv.restore();
+  }
+
+  // Check Mouse to Spawn
+  if (mousePressed == true && nB<numBalls) {
+    float nY=random(10)+mouseY;
+    vxin = friction*(mouseX-pmouseX);
+    vyin = friction*(mouseY-pmouseY);
+    if (nB>numBalls) {
+      nB=0;
+    }
+    balls[nB] = new Ball(mouseX, nY, vxin,vyin, 3, nB, 0, balls);
+    nB++;
+  } 
+  
+  
+// Display
+    
+    for (int i = 0; i < min(nB,numBalls); i++) {
+      if (gameStatus==1) {
+        balls[i].gravitate();
+        balls[i].move();
+      }
+      balls[i].display();  
+      balls[i].reset();
+    }
+}
+
+void checkTime() {
+  time = frameCount - baseTime;
+  if (gameStatus==0 && time==drawingTime ) {
+    baseTime=frameCount;
+    gameStatus=1;
+    kinect.enableDepth(false);
+    if (nB < 5) {
+      for (int i=0;i<300;i++) {
+          balls[nB % numBalls] = new Ball(random(0,width), random(0,height), 0,0, random(3,8), nB % numBalls,5,  balls);
+          nB++;   
+      }
+    }
+  } else if (gameStatus==1 && time==simulationTime) {
+    baseTime=frameCount;
+    gameStatus=0;
+    kinect.enableDepth(true);
+    nB=0;
+  } //else if (gameStatus==0 && time==drawingTime) {
+    //kinect.enableDepth(false);
+    //gameStatus=2;
+    //exampleMovie.loop();
+  //}
+}
+
+
+class Ball {
+  float x, y,vx,vy;
+  float diameter;
+  float ax = 0;
+  float ay = 0;
+  float mass = 1.;
+  int nC=0;
+  int id;
+  Ball[] cloud;
+  
+  Ball(float xin, float yin, float vxin, float vyin, float din, int idin,  int nColor, Ball[] oin) {
+    x = xin;
+    y = yin;
+    vx = vxin;
+    vy = vyin;
+    diameter = din;
+    mass=diameter/4.;
+    id = idin;
+    cloud = oin;
+    nC=nColor;
+  } 
+  
+  void gravitate() {
+    for (int i = id + 1; i < min(nB,numBalls); i++) {
+      float dx = cloud[i].x - x;
+      float dy = cloud[i].y - y;
+      float force=0;
+      float a1=0.;
+      float a2=0.;
+      float distance = sqrt(dx*dx + dy*dy);
+      if (distance >softening) {
+        if (distance <cutoff) force = G*mass*cloud[i].mass/(distance*distance);
+        a1=(force/mass)*(dx/distance);
+        a2=(force/mass)*(dy/distance);
+      }
+      else {
+        force = G*mass*cloud[i].mass/(softening*softening);
+        a1=(force/mass)*(dx/softening);
+        a2=(force/mass)*(dy/softening);
+      }
+      ax+=a1;
+      ay+=a2;
+      cloud[i].ax-=a1;
+      cloud[i].ay-=a2;
+    }   
+  }
+ 
+  void reset(){
+      ax=0;
+      ay=0;
+  }
+  
+  void move() {
+    vy += ay;
+    vx += ax;
+    x += vx;
+    y += vy;
+  }
+  
+  void display() {
+    if (gameStatus==0) {
+      fill(pColor[nC]);
+    } else {
+      fill(lerpColor(pColor[nC],white,time/(1.0*simulationTime)));
+    }
+    noStroke();
+    ellipse(x, y, diameter, diameter);
+    stroke(color(255,255,255,55));
+    v.set(vx,vy,0.);
+    if (v.mag()>0.25) {
+      displayVector(v,x,y,7.);
+    }
+  }
+}
+
+void displayVector(PVector v, float x, float y, float scayl) {
+  pushMatrix();
+  float arrowsize = 4;
+  // Translate to location to render vector
+  translate(x,y);
+  // Call vector heading function to get direction (note that pointing up is a heading of 0) and rotate
+  rotate(v.heading2D());
+  // Calculate length of vector & scale it to be bigger or smaller if necessary
+  float len = v.mag()*scayl;
+  // Draw three lines to make an arrow (draw pointing up since we've rotate to the proper direction)
+  line(0,0,len,0);
+  line(len,0,len-arrowsize,+arrowsize/2);
+  line(len,0,len-arrowsize,-arrowsize/2);
+  popMatrix();
+} 
+
+void simDisplay() {
+  if (time < simulationTime ) { 
+    text("Gravity Simulation Running ... ends in  "+ (int)(50 * (simulationTime-time)/simulationTime), 512,50);
+  //} else {
+    //text("Simulation Ends in " + (int)(1+ 5 * (simulationTime-time)/tbuffer),512,50);
+  }
+}
+
+void paintDisplay(){
+  if (time < drawingTime ) { 
+    text("Move close to the handrail.", 512,50);
+    text("Use your hands to place particles for gravity simulation.  ", 512,75);
+    text("Simulation starts in   "+ (int)(25 * (drawingTime-time)/drawingTime), 512,100);
+  //} else {
+    //text("Simulation Starts in " + (int)(1+ 5 * (drawingTime-time)/tbuffer),512,50);
+  }
+}
+
+
+
+void keyPressed() {
+
+  if (key == CODED) {
+    if (keyCode == UP) {
+      deg++;
+    } 
+    else if (keyCode == DOWN) {
+      deg--;
+    }
+    deg = constrain(deg,0,30);
+    kinect.tilt(deg);
+  }
+  if (key=='d') {
+    diagState=!diagState;
+  }
+  if (key=='s') {
+    displayState=!displayState;
+  }
+  
+}
+void movieEvent(Movie m) {
+  m.read();
+}
+void stop() {
+  kinect.quit();
+  super.stop();
+}
+
