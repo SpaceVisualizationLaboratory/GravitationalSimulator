@@ -5,4 +5,3 @@ A 2D gravity simulation. The main version uses a kinect for input, however there
 
 The exhibit was origionally deployed in the "Gravity Shapes the Universe" exhibit in the Adler Planetarium. A modified version currently exists in the Space Visualization Laboratory. A video of the origional exhibit is <a href="https://www.youtube.com/watch?v=8JES795kE08">here</a>
 
-<iframe width="560" height="315" src="//www.youtube.com/embed/8JES795kE08" frameborder="0" allowfullscreen></iframe>
